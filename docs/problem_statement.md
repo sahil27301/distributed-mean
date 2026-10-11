@@ -48,5 +48,3 @@ The components involved should be an API, DB, queue, and fleet of workers. The A
 - Add support for keeping the number of workers (W) configurable via the API
 - Create a UI
   - It should have some sort of updating logs about the state of the system such as number of workers free and busy, how many jobs completed, how many jobs on the queue, and any others you think are relevant here, use your best judgment.
-
-Aashish: 7889140886

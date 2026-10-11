@@ -217,3 +217,13 @@ There is no difference in the number of merge steps required, or the number of w
 The issue is space. Whenever a worker works, it produces a single partial file. So these always increase by +1 each time. However, if any of the workers inputs were partial files, those are deleted from storage after the merge commits. No reason to store partials once they're used.  
 If we prioritise files, the entire next layer of partials is kept in store till we process all individual files. If we prioritise partials, we prioritise consuming and deleting these intermediate files, so they number of partial files never grows beyond W. (Roughly) Every partial is consumed in a round, and the round produces W partials.  
 Now, if a certain worker is slower: If it grabs the largest partial, the other workers will then work with the remaining files and partials, so total files may rise a little, but still proportional to W. The slow worker can hold up at most 5 partials, so totally 5W partials extra across workers.
+
+### Failure Mode: Poisoned file
+
+If a certain file, for any reason, is corrupted, it crashes every worker that tries to claim it.  
+Solution: Maintain an attempts item per row, and increment it on every claim. If it exceeds a certain count, mark the job as failed.  
+Ideally though, the worker itself shouldn't crash on per-task errors. Let the lease expire instead.
+
+### Per task overhead
+
+Allows us to slow down all tasks, without setting their speed factor to the same slower value.

@@ -21,13 +21,14 @@ The problem is modelled on the server-side aggregation step of federated learnin
 
 ## 3. Assumptions
 
-- **5-file limit is per task.** A task takes at most 5 inputs (raw files or partials). Reading it as "5 files in memory at once" would allow one task to stream every file sequentially, which defeats the problem's requirement to split jobs when F > 5.
+- **5-file limit is per task.** A task takes at most 5 inputs (raw files or partials). Reading it as "5 files in memory at once" would let a single task stream through all F files, 5 at a time, keeping a running sum. That satisfies the memory limit but runs the whole job on one worker with no parallelism, and the problem explicitly asks the system to split jobs when F > 5.
 - **Partials count as inputs.** A partial is a length-C vector, the same size in memory as a file.
 - **Generation is out of scope.** Input data is assumed to already exist at rest, as in the inspiration. The API generates files with the simplest approach; generation time isn't optimised.
 - **Values are integers 0–999, stored as int32** (ITD 8). The problem lets us choose bounds. The API rejects jobs where 999 × F ≥ 2^31, so sums can never overflow.
 - **Design for max sizes, run at moderate ones.** F = 100k × C = 1M is ~10^11 values (~400 GB of inputs). Local runs use sizes like F = 1k, C = 10k.
 - **Worker speed is unknown to the system.** Simulated as a per-worker factor × random jitter × cost proportional to files × C. The design must not depend on knowing which workers are slow.
 - **One task per worker at a time.**
+- **Single host.** The API and all workers share one Docker volume for blobs, which only works when every container runs on the same machine. Running across machines requires a shared store such as S3, which is why storage sits behind the `BlobStore` interface (ITD 7).
 - **One API instance.** Resuming generation after a crash is safe with several instances, but would duplicate work without a claim on the job.
 
 ## 4. Architecture
@@ -57,8 +58,10 @@ jobs (
   values_per_file  int not null,         -- C
   status           text not null,        -- generating | running | done | failed
   result_path      text,
+  error            text,                 -- reason, when status = failed
   created_at       timestamptz not null,
   last_claimed_at  timestamptz not null, -- round-robin position; set when the job becomes running
+  running_at       timestamptz,          -- generation finished
   completed_at     timestamptz
 )
 
@@ -69,7 +72,14 @@ items (
   files_covered    int not null,         -- original files summed into this vector; 1 = raw file
   claimed_by       text,                 -- worker id
   lease_expires_at timestamptz,
+  attempts         int not null,         -- times claimed; poison-item detection
   created_at       timestamptz not null
+)
+
+tasks (                                  -- one row per finished attempt, for stats only
+  id, job_id, worker_id, inputs, files_covered, values_read, final,
+  outcome        text,                   -- committed | lost | failed
+  error, claimed_at, finished_at
 )
 
 create index jobs_rr_idx on jobs (last_claimed_at, created_at) where status = 'running';
@@ -106,23 +116,28 @@ ORDER BY j.last_claimed_at, j.created_at
 LIMIT 1
 FOR UPDATE SKIP LOCKED;
 
-UPDATE items SET claimed_by = :worker, lease_expires_at = now() + interval '30 seconds'
+UPDATE items SET claimed_by = :worker, lease_expires_at = now() + interval '30 seconds',
+                 attempts = attempts + 1
 WHERE id IN (
   SELECT id FROM items
   WHERE job_id = :job AND (claimed_by IS NULL OR lease_expires_at < now())
   ORDER BY files_covered DESC
   LIMIT 5 FOR UPDATE SKIP LOCKED
 )
-RETURNING id, path, files_covered;
+RETURNING id, path, files_covered, attempts;
 
 UPDATE jobs SET last_claimed_at = now() WHERE id = :job;
+-- if any returned attempts > 3 (poison item):
+--   UPDATE jobs SET status = 'failed', error = :reason WHERE id = :job AND status = 'running';
+--   and return no task
 COMMIT;
 ```
 
 - Round robin across jobs by `last_claimed_at`, updated at claim time (ITD 5).
 - Largest partials first keeps partials on disk around W (ITD 4).
-- `jobs_rr_idx` matches both the `WHERE status = 'running'` predicate and the `ORDER BY`, so Postgres walks running jobs in round-robin order and stops at the first eligible one. Walks at most W jobs and ~6W item rows. To verify with `EXPLAIN` once implemented.
+- `jobs_rr_idx` matches both the `WHERE status = 'running'` predicate and the `ORDER BY`, so Postgres walks running jobs in round-robin order and stops at the first eligible one. Walks at most W jobs and ~6W item rows. Verified with `EXPLAIN ANALYZE` on 50k done + 2k running jobs (40k items), with the 10 least-recently-served jobs fully leased: `Index Scan using jobs_rr_idx` visited 11 jobs and no done jobs, each eligibility check was an `items_job_idx` lookup on `job_id`, total 0.36 ms. The item claim reads `items_job_idx` already in `files_covered DESC` order (no sort), 0.24 ms. An ineligible job costs one index read per leased item it has, which is ≤ 5 per in-flight task.
 - No eligible job → sleep briefly and retry (polling; `LISTEN/NOTIFY` later).
+- An item claimed more than 3 times keeps killing or failing whoever takes it (e.g. a corrupted file). The claim that sees this fails the job instead of retrying forever; failing the whole job is correct because a mean that skips a file is wrong. Once `failed`, the job leaves the running set and nothing claims it again. Attribution is best-effort: good items claimed alongside a bad one also collect attempts, and with two bad items a good one can cross the limit first, so the error lists every over-limit item rather than naming one culprit.
 
 ### 6.3 Merge, heartbeat, commit
 
@@ -188,6 +203,8 @@ Tradeoff: fairness is by claims, not by work; jobs with more values per file con
 | Failure                                                 | Handling                                                                                    |
 | ------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | Worker crashes mid-task                                 | Lease expires in ≤30 s; items become claimable again                                        |
+| Task raises an exception                                | Worker logs it, releases its leases immediately, and keeps running                          |
+| Item fails every attempt (corrupted file)               | After 3 attempts the next claim marks the job `failed`, listing the over-limit items (§6.2) |
 | Worker slow but alive                                   | Heartbeat renews lease; keeps its items                                                     |
 | Worker paused past lease, others take overlapping items | Heartbeat only renews items it still holds; first commit wins, loser rolls back (ITD 3)     |
 | Crash after writing partial, before commit              | Orphan file; no row references it; GC later                                                 |
@@ -210,6 +227,7 @@ Double counting is prevented solely by the commit consuming all inputs or none. 
 
 - Workers log every claim, heartbeat shortfall, commit, and rollback with worker id, job id, input item ids, files covered, and duration.
 - API logs job creation (file count, values per file, job id), generation start/end, and completion.
+- Stats come from the `tasks` table, not logs: one row per finished attempt. The committed row is inserted inside the commit transaction, so it exists exactly when the merge took effect; lost and failed attempts are recorded separately. Attempts cut short by a crash leave no row (they show up as `items.attempts`). Per worker: committed tasks, values per second, wasted attempts. Per job: generation time (`running_at − created_at`), merge time (`completed_at − running_at`), task count, waste. Per task: `finished_at − claimed_at`. Invariant usable as a check: over a job's committed tasks, Σ(inputs − 1) = F − 1.
 - Progress = (F − items remaining) / (F − 1): every merge of k items removes k−1, and a job needs F−1 removals in total. Items remaining is `SELECT count(*) FROM items WHERE job_id = :id`, served by `items_job_idx`. In-flight inputs still count as remaining until their merge commits. If status polling becomes frequent at large F, keep an `items_remaining` column on `jobs` updated in the commit transaction.
 
 ## 11. API
@@ -294,6 +312,7 @@ sequenceDiagram
 | `running`    | API    | Same transaction that inserts the F items, after files exist |
 | `done`       | Worker | Same transaction as the final merge's commit                 |
 | `failed`     | API    | Generation hits an unrecoverable error (e.g. disk full)      |
+| `failed`     | Worker | A claim finds an item that exceeded 3 attempts               |
 
 ## 12. Future work
 

@@ -1,0 +1,55 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: mean
+      POSTGRES_PASSWORD: mean
+      POSTGRES_DB: mean
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U mean -d mean"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  api:
+    build: ./api
+    environment:
+      DATABASE_URL: postgres://mean:mean@postgres:5432/mean
+      BLOB_ROOT: /data
+      PORT: "3000"
+      LOG_LEVEL: info
+    ports:
+      - "3000:3000"
+    volumes:
+      - blobs:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  worker:
+    build: ./worker
+    environment:
+      DATABASE_URL: postgresql://mean:mean@postgres:5432/mean
+      BLOB_ROOT: /data
+      LOG_LEVEL: INFO
+      # Empty = each replica draws a random factor in [1, 4]; set a number to make all workers equal.
+      WORKER_SPEED_FACTOR: ${WORKER_SPEED_FACTOR:-}
+      # Scales every worker equally; raise it to slow the whole system down for a demo.
+      SECONDS_PER_MILLION_VALUES: ${SECONDS_PER_MILLION_VALUES:-1.0}
+      TASK_OVERHEAD_SECONDS: ${TASK_OVERHEAD_SECONDS:-0}
+    volumes:
+      - blobs:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    deploy:
+      replicas: ${WORKERS:-4}
+
+volumes:
+  pgdata:
+  blobs:
