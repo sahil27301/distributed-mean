@@ -1,0 +1,7 @@
+| ITD 7 - *Use a blob storage interface backed by a shared local volume* |  |
+| :---- | :---- |
+| **THE PROBLEM** | Where do raw files, partials, and results live so the API and all workers can read and write them? |
+| **OPTIONS CONSIDERED (Decision in bold)** | ***`BlobStore` interface (`put`, `get`, `delete`, `getDownloadUrl`), implemented on a shared Docker volume; S3 implementation later*** <br> S3 from day one (via MinIO / LocalStack locally) <br> Store vectors in Postgres (`bytea`) |
+| **REASONING** | A shared volume is the simplest thing that works locally. The interface keeps callers unaware of the backend, so moving to S3 for multi-host scale is a new implementation, not a rewrite. <br> S3 now adds setup cost with no benefit on one machine. <br> Vectors in Postgres bloat the DB (a C = 1M partial is 4 MB) and couple storage throughput to the queue. |
+| **TRADEOFFS** | A shared volume only works on a single host. <br> The interface exists twice (Node for the API, Python for workers) and both must agree on paths. |
+| **NOTES** | Paths: `raw/{job_id}/{i}.bin`, `partials/{job_id}/{uuid}.bin`, `results/{job_id}.csv`. Unique partial paths per attempt are required by ITD 3. <br> Every local `put` (raw, partial, result) writes to a temp path, fsyncs, then renames, so a file under its final name is always complete, even after a machine crash. S3 puts are already atomic. |
