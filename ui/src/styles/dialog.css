@@ -1,0 +1,153 @@
+.dialog {
+  width: min(40rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 2rem);
+  padding: 0;
+  border: 1.5px solid var(--ink);
+  border-radius: var(--radius-panel);
+  background: var(--panel-raised);
+  color: var(--ink);
+}
+
+.dialog::backdrop {
+  background: rgb(34 48 58 / 0.45);
+}
+
+.dialog[open] {
+  animation: dialog-in 160ms ease-out;
+}
+
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+.dialog__body {
+  padding: 1.5rem;
+}
+
+.dialog__lede {
+  margin: 0.35rem 0 1.25rem;
+}
+
+.presets {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.preset {
+  font: inherit;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.6rem 0.7rem;
+  border: 1.5px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.preset:hover {
+  border-color: var(--ink);
+}
+
+.preset__name {
+  font-family: var(--font-cond);
+  font-weight: 600;
+  font-size: var(--t-lead);
+}
+
+.preset__desc {
+  font-size: var(--t-small);
+  color: var(--ink-soft);
+  line-height: 1.35;
+}
+
+.drafts__head,
+.draft {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr;
+  gap: 0.6rem;
+  align-items: start;
+}
+
+.drafts--many .drafts__head,
+.drafts--many .draft {
+  grid-template-columns: 1fr 1.4fr 5rem;
+}
+
+.drafts__head {
+  font-size: var(--t-small);
+  color: var(--ink-soft);
+  margin-bottom: 0.3rem;
+}
+
+.draft {
+  margin-bottom: 0.5rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.field input {
+  font: inherit;
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  border: 1.5px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink);
+}
+
+.field input:focus-visible {
+  outline: none;
+  border-color: var(--size-hi);
+  box-shadow: 0 0 0 2px var(--size-lo);
+}
+
+.field input[aria-invalid="true"] {
+  border-color: var(--red);
+}
+
+.field__error {
+  font-size: var(--t-small);
+  color: var(--red);
+}
+
+.draft__remove {
+  margin-top: 0.15rem;
+}
+
+.drafts__add {
+  padding-left: 0;
+}
+
+.dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1.5rem;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dialog[open] {
+    animation: none;
+  }
+}

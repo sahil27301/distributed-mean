@@ -11,7 +11,7 @@ export function createTestPool(): pg.Pool {
 }
 
 export async function resetDb(pool: pg.Pool): Promise<void> {
-  await pool.query("TRUNCATE tasks, items, jobs");
+  await pool.query("TRUNCATE tasks, items, jobs, workers");
 }
 
 export async function insertJobRow(

@@ -1,5 +1,6 @@
 import os
 import random
+import secrets
 import socket
 from dataclasses import dataclass
 
@@ -30,7 +31,8 @@ def load_config(env: dict[str, str] | None = None) -> Config:
         database_url=env["DATABASE_URL"],
         blob_root=env["BLOB_ROOT"],
         log_level=env.get("LOG_LEVEL", "INFO"),
-        worker_id=env.get("WORKER_ID") or f"{socket.gethostname()}-{os.getpid()}",
+        # The random suffix keeps a restarted container (same hostname, pid 1) from reusing its old id.
+        worker_id=env.get("WORKER_ID") or f"{socket.gethostname()}-{os.getpid()}-{secrets.token_hex(2)}",
         idle_poll_seconds=float(env.get("IDLE_POLL_SECONDS", "0.5")),
         lease_seconds=float(env.get("LEASE_SECONDS", "30")),
         heartbeat_seconds=float(env.get("HEARTBEAT_SECONDS", "10")),

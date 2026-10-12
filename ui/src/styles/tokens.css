@@ -1,0 +1,35 @@
+:root {
+  /* Enamel control panel */
+  --panel: #e4e7e0;
+  --panel-raised: #f1f3ee;
+  --panel-sunk: #d6dbd3;
+  --ink: #22303a;
+  --ink-soft: #5b6a72;
+  --line: #8e9a94;
+  --line-faint: #c4cbc5;
+
+  /* Signal lamps */
+  --amber: #d99a1e;
+  --green: #3d7a55;
+  --red: #b5432f;
+  --red-tint: #f2ddd6;
+
+  /* Partial size ramp: one file → all files */
+  --size-lo: #a9c7d8;
+  --size-hi: #26357f;
+
+  --font: "Barlow", system-ui, sans-serif;
+  --font-cond: "Barlow Condensed", "Barlow", system-ui, sans-serif;
+
+  /* Type scale, ratio ~1.25 from a 15px body */
+  --t-small: 0.8125rem;
+  --t-body: 0.9375rem;
+  --t-lead: 1.125rem;
+  --t-h2: 1.4375rem;
+  --t-h1: 1.875rem;
+  --t-display: 3rem;
+
+  --radius-chip: 4px;
+  --radius-panel: 8px;
+  --gap: 1rem;
+}

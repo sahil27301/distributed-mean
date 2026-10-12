@@ -6,6 +6,7 @@ import type { BlobStore } from "./blob/blobStore.js";
 import type { GenerationRunner } from "./generation/runner.js";
 import { errorHandler } from "./http/errorHandler.js";
 import { createJobsRouter } from "./jobs/routes.js";
+import { createWorkersRouter } from "./workers/routes.js";
 
 export interface AppDeps {
   pool: pg.Pool;
@@ -24,6 +25,7 @@ export function createApp({ pool, logger, blobs, runner }: AppDeps): Express {
     res.json({ status: "ok" });
   });
   app.use("/jobs", createJobsRouter({ pool, blobs, runner }));
+  app.use("/workers", createWorkersRouter({ pool }));
 
   app.use(errorHandler);
   return app;

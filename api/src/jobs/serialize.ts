@@ -7,6 +7,7 @@ export interface JobResponse {
   valuesPerFile: number;
   progress: number;
   createdAt: string;
+  runningAt: string | null;
   completedAt: string | null;
   resultUrl?: string;
   error?: string;
@@ -28,6 +29,7 @@ export function toJobResponse(job: JobRecord): JobResponse {
     valuesPerFile: job.valuesPerFile,
     progress: computeProgress(job),
     createdAt: job.createdAt.toISOString(),
+    runningAt: job.runningAt?.toISOString() ?? null,
     completedAt: job.completedAt?.toISOString() ?? null,
     ...(job.status === "done" && { resultUrl: `/jobs/${job.id}/result` }),
     ...(job.error && { error: job.error }),

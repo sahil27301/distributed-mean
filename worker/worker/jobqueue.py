@@ -72,6 +72,7 @@ WITH picked AS MATERIALIZED (
 )
 UPDATE items
 SET claimed_by = %(worker)s,
+    claimed_at = now(),
     lease_expires_at = now() + make_interval(secs => %(lease)s),
     attempts = attempts + 1
 FROM picked
@@ -141,7 +142,8 @@ def renew_leases(conn: psycopg.Connection, item_ids: list[UUID], worker_id: str,
 def release(conn: psycopg.Connection, item_ids: list[UUID], worker_id: str) -> None:
     """Makes items claimable again right away instead of waiting for the lease to expire."""
     conn.execute(
-        "UPDATE items SET claimed_by = NULL, lease_expires_at = NULL WHERE id = ANY(%s) AND claimed_by = %s",
+        """UPDATE items SET claimed_by = NULL, claimed_at = NULL, lease_expires_at = NULL
+           WHERE id = ANY(%s) AND claimed_by = %s""",
         [item_ids, worker_id],
     )
 
@@ -164,8 +166,8 @@ def commit(conn: psycopg.Connection, task: Task, output_path: str, worker_id: st
                 raise psycopg.Rollback()
         else:
             conn.execute(
-                "INSERT INTO items (job_id, path, files_covered) VALUES (%s, %s, %s)",
-                [task.job_id, output_path, task.files_covered],
+                "INSERT INTO items (job_id, path, files_covered, created_by) VALUES (%s, %s, %s, %s)",
+                [task.job_id, output_path, task.files_covered, worker_id],
             )
         record_task(conn, task, worker_id, "committed")
         committed = True

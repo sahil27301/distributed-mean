@@ -186,4 +186,22 @@ class TestLeases:
         task = claim(conn, worker="w1")
         assert claim(conn, worker="w2") is None
         jobqueue.release(conn, task.item_ids, "w1")
+        assert conn.execute("SELECT count(*) FROM items WHERE claimed_at IS NOT NULL").fetchone() == (0,)
         assert claim(conn, worker="w2") is not None
+
+
+class TestUiColumns:
+    def test_claim_stamps_claimed_at_and_commit_stamps_created_by(self, conn):
+        job = insert_job_with_items(conn, [1, 1, 1], file_count=10)
+        task = claim(conn, worker="w1", max_fan_in=2)
+        claimed = conn.execute(
+            "SELECT count(*) FROM items WHERE job_id = %s AND claimed_by = 'w1' AND claimed_at = %s",
+            [job, task.claimed_at],
+        ).fetchone()
+        assert claimed == (2,)
+
+        jobqueue.commit(conn, task, "partials/x.bin", "w1")
+        rows = conn.execute(
+            "SELECT files_covered, created_by FROM items WHERE job_id = %s ORDER BY files_covered", [job]
+        ).fetchall()
+        assert rows == [(1, None), (2, "w1")], "raw items have no producer; the partial records its worker"

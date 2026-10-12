@@ -42,12 +42,14 @@ flowchart LR
   API -->|write raw files| BS[(Blob storage<br/>shared volume / S3)]
   W1[Worker 1..W<br/>Python] -->|claim / commit / heartbeat| PG
   W1 -->|read inputs, write partials| BS
+  UI[UI<br/>React, nginx] -->|/api: polls jobs, snapshot, workers| API
 ```
 
 - **API**: validates input, generates raw files, creates the job and its F items, exposes job status and results.
 - **Postgres**: `jobs`, `items`, and `tasks` tables. Items are the queue (ITD 2). Tasks record every finished attempt, for stats (§10).
 - **Blob storage**: `BlobStore` interface; shared Docker volume now, S3 later (ITD 7).
-- **Workers**: stateless loop of claim → merge → commit. No coordinator.
+- **Workers**: stateless loop of claim → merge → commit. No coordinator. Each also upserts a `workers` presence row every 5 s, which is display-only.
+- **UI**: a static React app that only reads, by polling (§11). There's no push channel; at F ≤ 100 a 500 ms poll of one indexed query is cheap, and polling survives API restarts without reconnect logic.
 
 ## 5. Data model
 
@@ -71,9 +73,16 @@ items (
   path             text not null,        -- blob path of an int32 vector of length values_per_file
   files_covered    int not null,         -- original files summed into this vector; 1 = raw file
   claimed_by       text,                 -- worker id
+  claimed_at       timestamptz,          -- start of the current claim (UI: elapsed time)
   lease_expires_at timestamptz,
   attempts         int not null,         -- times claimed; poison-item detection
+  created_by       text,                 -- worker that produced this partial; null for raw files (UI: return animation)
   created_at       timestamptz not null
+)
+
+workers (                                -- presence, for display only; never consulted for correctness
+  id text primary key, speed_factor, started_at,
+  last_seen_at   timestamptz             -- upserted every 5 s; live = seen in the last 15 s; deleted on clean exit
 )
 
 tasks (                                  -- one row per finished attempt, for stats only
@@ -241,6 +250,18 @@ Double counting is prevented solely by the commit consuming all inputs or none. 
 | POST   | `/jobs`            | Create a job            |
 | GET    | `/jobs/:id`        | Job status and progress |
 | GET    | `/jobs/:id/result` | Download the result CSV |
+| GET    | `/jobs`            | List jobs (UI)          |
+| GET    | `/jobs/:id/snapshot` | Live board state (UI) |
+| GET    | `/workers`         | Live workers and stats (UI) |
+
+**UI read endpoints.** They're shaped around what one screen needs per poll, so each poll is one request:
+
+- `GET /jobs?limit=1–100&cursor&status=active|done|failed`: keyset pagination on `(created_at, id)` via `jobs_created_idx`. The cursor carries `created_at::text` rather than a JS `Date`, because a `Date` truncates Postgres's microseconds to milliseconds, which would skip or repeat rows at page boundaries. Offset pagination would drift as new jobs arrive at the head while you page.
+- `GET /jobs/:id/snapshot`: `{ job, items, workers }`. `items` is null above F = 100 (too many to draw, and the poll stays O(1)). Otherwise it holds at most F rows of `{ id, filesCovered, workerId, createdBy }`, in claim order (`files_covered DESC, created_at`), so the left of the drawn queue is what gets taken next. `workerId` is set only while the lease is live: an expired claim is back in the queue even if `claimed_by` hasn't been cleared. The client derives every animation by diffing consecutive snapshots. A new id with `createdBy` is a partial that flies back from that worker; a held id that vanished is an input that was merged away. No event log is needed.
+- `GET /jobs/:id/result/preview` and `GET /jobs/:id/tasks`: fetched once when a job finishes, not polled. The preview reads lines from the start of the result stream and closes it, so its cost doesn't depend on C. The task summary groups the job's `tasks` rows by worker (`tasks_job_idx`).
+- `GET /workers`: presence rows from the last 15 s, each with its current lease (lateral join on `items_claimed_by_idx`) and lifetime stats aggregated from `tasks`.
+
+A worker killed with `SIGKILL` keeps its presence row for up to 15 s and its leases for up to 30 s. Between the two, the board shows its files held by a worker that is no longer live, drawn as a red "not responding" station until the leases expire.
 
 **`POST /jobs`**
 
@@ -324,7 +345,8 @@ sequenceDiagram
 - Orphan file garbage collection.
 - Faster generation, then pipelined enqueue (ITD 9).
 - Round robin over the K oldest jobs; work-weighted fairness.
-- `GET /jobs` listing; configurable W via the API; UI with live system state (bonus).
+- Configurable W via the API.
+- UI: server-sent events instead of polling if many viewers watch large fleets; an `items_remaining` column so list progress doesn't count items per row.
 
 ## 13. Decisions
 

@@ -1,0 +1,187 @@
+.board {
+  --chip: 1.75rem;
+  --chip-gap: 0.3rem;
+  background: var(--panel-raised);
+  border: 1.5px solid var(--ink);
+  border-radius: var(--radius-panel);
+  padding: 1.25rem 1.25rem 1rem;
+  margin-bottom: 2rem;
+}
+
+.board__queue-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.board__summary {
+  margin: 0;
+  font-size: var(--t-small);
+}
+
+.board__queue {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--chip-gap);
+  min-height: calc(var(--chip) + 1rem);
+  padding: 0.5rem;
+  background: var(--panel-sunk);
+  border-radius: 6px;
+  align-content: flex-start;
+}
+
+.board__note {
+  margin: 0;
+  align-self: center;
+  color: var(--ink-soft);
+  max-width: 65ch;
+}
+
+/*
+ * The wiring: a feed down from the queue onto a bus that runs between the centres of the first
+ * and last station in the top row, with a drop into each station. --cols is set inline.
+ */
+.board__bus {
+  height: 1.25rem;
+  width: 0;
+  margin-inline: auto;
+  border-left: 1.5px solid var(--line);
+}
+
+.board__stations {
+  --cols: 4;
+  --col-gap: 1rem;
+  --wire: 1.25rem;
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(var(--cols), minmax(0, 1fr));
+  gap: var(--wire) var(--col-gap);
+  padding-top: var(--wire);
+}
+
+.board__stations::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  --half-col: calc((100% - (var(--cols) - 1) * var(--col-gap)) / var(--cols) / 2);
+  left: var(--half-col);
+  right: var(--half-col);
+  border-top: 1.5px solid var(--line);
+}
+
+.station {
+  position: relative;
+  padding: 0.6rem;
+  border: 1.5px solid var(--ink);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.station::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: calc(-1 * var(--wire) - 1.5px);
+  height: var(--wire);
+  border-left: 1.5px solid var(--line);
+}
+
+/* Only the first row hangs off the bus */
+.station--lower::before {
+  display: none;
+}
+
+.station--busy::before {
+  border-left-color: var(--amber);
+  border-left-width: 2.5px;
+}
+
+.station--silent {
+  border-color: var(--red);
+  border-style: dashed;
+  background: var(--red-tint);
+}
+
+.station__tray {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--chip-gap);
+  /* Room for five chips on two rows, so stations don't change height as work arrives */
+  min-height: calc(2 * var(--chip) + var(--chip-gap) + 0.6rem);
+  align-content: flex-start;
+  padding: 0.3rem;
+  border-radius: 4px;
+  background: var(--panel-sunk);
+  margin-bottom: 0.5rem;
+}
+
+.station__name {
+  font-family: var(--font-cond);
+  font-weight: 600;
+  font-size: var(--t-lead);
+  line-height: 1.2;
+}
+
+.station__state {
+  font-size: var(--t-small);
+  min-height: 1.4em;
+}
+
+.station__alarm {
+  color: var(--red);
+}
+
+.chip {
+  width: var(--chip);
+  height: var(--chip);
+  border-radius: var(--radius-chip);
+  display: grid;
+  place-items: center;
+  font-family: var(--font-cond);
+  font-weight: 600;
+  font-size: 0.8125rem;
+  box-shadow: inset 0 0 0 1px rgb(34 48 58 / 0.25);
+}
+
+.chip--result {
+  width: auto;
+  padding: 0 0.75rem;
+  font-size: var(--t-body);
+}
+
+@media (max-width: 40rem) {
+  .board {
+    padding: 1rem 0.75rem;
+  }
+
+  .board__stations {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    --wire: 0.75rem;
+    padding-top: 0;
+    margin-top: 0.75rem;
+  }
+
+  .board__bus,
+  .board__stations::before,
+  .station::before {
+    display: none;
+  }
+}
+
+.legend {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 1.25rem;
+  font-size: var(--t-small);
+  color: var(--ink-soft);
+}
+
+.legend__ramp {
+  width: 9rem;
+  height: 0.5rem;
+  border-radius: 2px;
+  background: linear-gradient(to right in oklab, var(--size-lo), var(--size-hi));
+}
