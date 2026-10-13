@@ -193,7 +193,7 @@ Why resuming is safe:
 - **Workers never see a half-generated job:** items only exist after the flip transaction, which runs once all files exist.
 - **The flip happens at most once:** the conditional `UPDATE ... WHERE status = 'generating'` lets only one caller insert items, so even two API instances can't enqueue a job twice; they would only duplicate generation work.
 
-Generations run through a small in-process concurrency limit so a burst of jobs doesn't saturate the disk.
+Generations run through a small in-process concurrency limit so a burst of jobs doesn't saturate the disk. Items are enqueued only once every file exists (ITD 9).
 
 ## 7. Multi-job scheduling
 
@@ -224,6 +224,7 @@ Double counting is prevented solely by the commit consuming all inputs or none. 
 - **Intermediate storage:** ~W partials (≤ ~5W counting in-flight), independent of F.
 - **Reads at max size:** every item is read exactly once. Raw: 100k files × 1M values × 4 B = 400 GB. Partials: ~25k tasks each produce one 4 MB partial = ~100 GB. Summing 20 MB of inputs per task takes milliseconds of CPU, while reading it from shared storage takes tens of milliseconds or more, so storage bandwidth is the bottleneck at scale, not compute (estimate).
 - **Claim cost:** O(W) rows, independent of the number of jobs or items.
+- **At max limits:** per-task memory stays small whatever C is, and large F gives far more parallel tasks than workers (ITD 1). Queue load is light (ITD 2). The limiting factor is generating and storing raw files in the API (ITD 9).
 - **Scaling path:** S3 instead of a shared volume; `LISTEN/NOTIFY` instead of polling; split tasks along C (column ranges) to bound per-task cost across jobs with very different C; shard by job if Postgres claim throughput becomes the limit.
 
 ## 10. Observability
@@ -321,6 +322,7 @@ sequenceDiagram
 
 - Backup copies of slow tasks (already safe under ITD 3).
 - Orphan file garbage collection.
+- Faster generation, then pipelined enqueue (ITD 9).
 - Round robin over the K oldest jobs; work-weighted fairness.
 - `GET /jobs` listing; configurable W via the API; UI with live system state (bonus).
 
@@ -336,3 +338,4 @@ sequenceDiagram
 | [6](decisions/ITD-006-slow-and-failed-workers.md)  | Pull-based claiming, 30 s heartbeated leases                  |
 | [7](decisions/ITD-007-blob-storage.md)             | Blob storage interface on a shared volume                     |
 | [8](decisions/ITD-008-file-format.md)              | Integers in raw little-endian int32 binary                    |
+| [9](decisions/ITD-009-enqueue-after-generation.md) | Enqueue a job's items only after all its files exist          |
