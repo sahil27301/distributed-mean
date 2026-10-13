@@ -14,6 +14,17 @@ docker compose down -v                                    # also wipe postgres +
 
 `down -v` is required after changing `db/001_init.sql`. The schema is only applied to an empty volume.
 
+## Switching between `main` and `v2-ui`
+
+The branches have different schemas (`v2-ui` adds a `workers` table and `items.claimed_at`/`created_by`), so wipe the volumes on every switch. `--remove-orphans` drops the `ui` container when going back to `main`.
+
+```bash
+docker compose down -v --remove-orphans && git checkout v2-ui && docker compose up -d --build   # UI on http://localhost:8080
+docker compose down -v --remove-orphans && git checkout main  && docker compose up -d --build
+```
+
+Commit or stash local changes first, or `git checkout` refuses to switch.
+
 ## Workers
 
 `restart` keeps the environment the container was created with. Recreate to change speed:
