@@ -11,6 +11,10 @@ import psycopg
 log = logging.getLogger("worker.queue")
 
 
+class FanInExceeded(RuntimeError):
+    """The claim query locked more items than allowed; the transaction is rolled back."""
+
+
 @dataclass(frozen=True)
 class Input:
     id: UUID
@@ -56,19 +60,23 @@ LIMIT 1
 FOR UPDATE SKIP LOCKED
 """
 
+# MATERIALIZED forces the locking subquery to run exactly once. As a plain `WHERE id IN (...)`
+# the planner may rescan it per outer row, and each rescan locks a fresh batch past LIMIT.
 CLAIM_ITEMS = """
-UPDATE items
-SET claimed_by = %(worker)s,
-    lease_expires_at = now() + make_interval(secs => %(lease)s),
-    attempts = attempts + 1
-WHERE id IN (
+WITH picked AS MATERIALIZED (
   SELECT id FROM items
   WHERE job_id = %(job)s AND (claimed_by IS NULL OR lease_expires_at < now())
   ORDER BY files_covered DESC
   LIMIT %(limit)s
   FOR UPDATE SKIP LOCKED
 )
-RETURNING id, path, files_covered, attempts, now()
+UPDATE items
+SET claimed_by = %(worker)s,
+    lease_expires_at = now() + make_interval(secs => %(lease)s),
+    attempts = attempts + 1
+FROM picked
+WHERE items.id = picked.id
+RETURNING items.id, items.path, items.files_covered, items.attempts, now()
 """
 
 
@@ -90,6 +98,9 @@ def claim(
         rows = conn.execute(
             CLAIM_ITEMS, {"worker": worker_id, "lease": lease_seconds, "job": job_id, "limit": max_fan_in}
         ).fetchall()
+        if len(rows) > max_fan_in:
+            log.error("claim returned %d items for job %s, limit is %d; rolling back", len(rows), job_id, max_fan_in)
+            raise FanInExceeded(f"claimed {len(rows)} items, limit is {max_fan_in}")
         if len(rows) < 2:
             # Rows locked by an in-flight commit are skipped; a 1-input merge is pointless, so retry later.
             raise psycopg.Rollback()

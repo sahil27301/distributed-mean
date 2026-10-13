@@ -227,3 +227,18 @@ Ideally though, the worker itself shouldn't crash on per-task errors. Let the le
 ### Per task overhead
 
 Allows us to slow down all tasks, without setting their speed factor to the same slower value.
+
+### Query Execution
+
+Let's say you want to execute a query, and this depends on iterating over the results of another query. There are 2 ways to do it:
+
+- Materialized view: Run the nested query only once, and hold that in a temporary store to use throughout.
+- Subquery: Run the nested query every single time. Generally feasible when the outer query matches fewer rows.
+
+Now, for a materialized view, there are 3 ways to execute this.
+
+- Nested Loop: For all results in the subquery output, iterate over them and look them up in the main table. Possibly using indices.
+- Hash semi join: Throw the subquery results in a hash table. Then, iterate over the main table once, and for every id, check if it's in our hash table.
+- Merge join: When both sides are sorted on the join key.
+
+### Task Claiming Query Correctness

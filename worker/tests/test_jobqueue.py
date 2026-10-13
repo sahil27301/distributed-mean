@@ -1,6 +1,7 @@
 import threading
 
 import psycopg
+import pytest
 
 from conftest import insert_job_with_items
 from worker import jobqueue
@@ -20,11 +21,53 @@ def items_of(conn, job_id):
     return conn.execute("SELECT files_covered FROM items WHERE job_id = %s", [job_id]).fetchall()
 
 
+def claimed_count(conn, job_id):
+    return conn.execute(
+        "SELECT count(*) FROM items WHERE job_id = %s AND claimed_by IS NOT NULL", [job_id]
+    ).fetchone()[0]
+
+
+@pytest.fixture
+def items_churned(conn):
+    """Stats of "pages exist, zero live rows", as after jobs finish and their items are deleted.
+
+    With them the planner rescans an IN (... LIMIT ... SKIP LOCKED) subquery once per outer row, and
+    each rescan skips rows the statement already locked, so it grabs a fresh batch. Autovacuum is off
+    so it can't truncate the empty pages or re-analyze mid-test and flip the plan back.
+    """
+    conn.execute("ALTER TABLE items SET (autovacuum_enabled = false)")
+    insert_job_with_items(conn, [1] * 50)
+    conn.execute("DELETE FROM items")
+    conn.execute("ANALYZE items")
+    yield
+    conn.execute("ALTER TABLE items RESET (autovacuum_enabled)")
+
+
+IGNORES_LIMIT_CLAIM_ITEMS = """
+UPDATE items SET claimed_by = %(worker)s, attempts = attempts + 1
+WHERE job_id = %(job)s AND %(limit)s > 0
+RETURNING id, path, files_covered, attempts, now()
+"""
+
+
 class TestClaim:
     def test_takes_up_to_five_items_largest_partials_first(self, conn):
         insert_job_with_items(conn, [1, 1, 3, 1, 7, 2, 1])
         task = claim(conn)
         assert sorted((i.files_covered for i in task.inputs), reverse=True) == [7, 3, 2, 1, 1]
+
+    def test_fan_in_limit_holds_when_stats_say_table_is_empty(self, conn, items_churned):
+        job = insert_job_with_items(conn, [1] * 30)
+        task = claim(conn)
+        assert len(task.inputs) == 5
+        assert claimed_count(conn, job) == 5
+
+    def test_over_claim_is_rolled_back_not_merged(self, conn, monkeypatch):
+        monkeypatch.setattr(jobqueue, "CLAIM_ITEMS", IGNORES_LIMIT_CLAIM_ITEMS)
+        job = insert_job_with_items(conn, [1] * 30)
+        with pytest.raises(jobqueue.FanInExceeded):
+            claim(conn)
+        assert claimed_count(conn, job) == 0
 
     def test_needs_at_least_two_claimable_items(self, conn):
         job = insert_job_with_items(conn, [1, 1, 1])

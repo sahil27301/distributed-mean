@@ -22,6 +22,13 @@ from pathlib import Path
 
 API = os.environ.get("API_URL", "http://localhost:3000")
 ROOT = Path(__file__).resolve().parents[1]
+MAX_FAN_IN = 5
+
+TASK_SHAPE = """
+SELECT count(*), coalesce(min(inputs), 0), coalesce(max(inputs), 0),
+       coalesce(sum(inputs - 1), 0), count(*) FILTER (WHERE final)
+FROM tasks WHERE job_id = '{job}' AND outcome = 'committed'
+"""
 
 VERIFY = r"""
 import hashlib, json, sys
@@ -112,6 +119,17 @@ def verify(job_id: str, file_count: int, values_per_file: int, name: str) -> Non
     downloaded_ok = status == 200 and hashlib.sha256(body).hexdigest() == result["sha256"]
     check(name, result["exact"] and downloaded_ok and job["progress"] == 1,
           f"exact={result['exact']} download_matches={downloaded_ok} content-type={headers.get('Content-Type')}")
+    check_task_shape(job_id, file_count, name)
+
+
+def check_task_shape(job_id: str, file_count: int, name: str) -> None:
+    """Committed tasks must each merge 2..MAX_FAN_IN items and, together, reduce F items to one."""
+    out = compose("exec", "-T", "postgres", "psql", "-U", "mean", "-d", "mean", "-tA", "-F", ",",
+                  "-c", TASK_SHAPE.format(job=job_id))
+    tasks, min_in, max_in, reduced, finals = (int(x) for x in out.strip().split(","))
+    ok = 2 <= min_in and max_in <= MAX_FAN_IN and reduced == file_count - 1 and finals == 1
+    check(f"{name}: task shape", ok,
+          f"tasks={tasks} inputs={min_in}..{max_in} items_reduced={reduced}/{file_count - 1} final_tasks={finals}")
 
 
 def wait_api(timeout: float = 60) -> None:

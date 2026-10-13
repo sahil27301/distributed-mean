@@ -116,15 +116,17 @@ ORDER BY j.last_claimed_at, j.created_at
 LIMIT 1
 FOR UPDATE SKIP LOCKED;
 
-UPDATE items SET claimed_by = :worker, lease_expires_at = now() + interval '30 seconds',
-                 attempts = attempts + 1
-WHERE id IN (
+WITH picked AS MATERIALIZED (
   SELECT id FROM items
   WHERE job_id = :job AND (claimed_by IS NULL OR lease_expires_at < now())
   ORDER BY files_covered DESC
   LIMIT 5 FOR UPDATE SKIP LOCKED
 )
-RETURNING id, path, files_covered, attempts;
+UPDATE items SET claimed_by = :worker, lease_expires_at = now() + interval '30 seconds',
+                 attempts = attempts + 1
+FROM picked WHERE items.id = picked.id
+RETURNING items.id, items.path, items.files_covered, items.attempts;
+-- if more than 5 rows came back: ROLLBACK (guard against a regression of incident 001)
 
 UPDATE jobs SET last_claimed_at = now() WHERE id = :job;
 -- if any returned attempts > 3 (poison item):
@@ -136,6 +138,7 @@ COMMIT;
 - Round robin across jobs by `last_claimed_at`, updated at claim time (ITD 5).
 - Largest partials first keeps partials on disk around W (ITD 4).
 - `jobs_rr_idx` matches both the `WHERE status = 'running'` predicate and the `ORDER BY`, so Postgres walks running jobs in round-robin order and stops at the first eligible one. Walks at most W jobs and ~6W item rows. Verified with `EXPLAIN ANALYZE` on 50k done + 2k running jobs (40k items), with the 10 least-recently-served jobs fully leased: `Index Scan using jobs_rr_idx` visited 11 jobs and no done jobs, each eligibility check was an `items_job_idx` lookup on `job_id`, total 0.36 ms. The item claim reads `items_job_idx` already in `files_covered DESC` order (no sort), 0.24 ms. An ineligible job costs one index read per leased item it has, which is ≤ 5 per in-flight task.
+- The item pick is a `MATERIALIZED` CTE so it runs exactly once. As a plain `WHERE id IN (subquery)`, stale stats on the churning `items` table can make Postgres rerun the locking subquery per row and claim far past the limit ([incident 001](incidents/001-claim-over-fetch.md)).
 - No eligible job → sleep briefly and retry (polling; `LISTEN/NOTIFY` later).
 - An item claimed more than 3 times keeps killing or failing whoever takes it (e.g. a corrupted file). The claim that sees this fails the job instead of retrying forever; failing the whole job is correct because a mean that skips a file is wrong. Once `failed`, the job leaves the running set and nothing claims it again. Attribution is best-effort: good items claimed alongside a bad one also collect attempts, and with two bad items a good one can cross the limit first, so the error lists every over-limit item rather than naming one culprit.
 
