@@ -246,3 +246,40 @@ Now, for a materialized view, there are 3 ways to execute this.
 The issue for item claiming for a given job came because the engine went with a subquery plan instead of a materialised plan. For every outer item row, it ran the innter query to see if this was a valid item. Since it was, it updated it, and moved on. For the second outer item, it ran the same query. This time the subquery skips item 1 since it has been updated.  
 The same keeps happening for every outer item, and it is effectively a sliding window of 5 in the subquery, and every item gets picked.  
 A materialized CTE upfront fixes this.
+
+### Reasoning about scale
+
+The problem statement gives us k < 100k and c < 1M.  
+The number of files is relatively larger here.  
+One merge tasks takes 5 files, with 1M values each. Each value is an int 32 -> 32 bits -> 4 bytes.  
+So 5 _ 1M _ 4 = 20MB of input, and another 8MB of output (workers hold answer in int 64).  
+That makes about 28MB at most per worker.  
+Note: the worker internally doesn't even hold all 5 in memory at once, so total is closer to 16MB. However, the final task, because it writes to CSV, internally converts to python objects, touching up to 100MB. Still reasonable. Also happensonly once per job, and we could probably slice this final write too.
+
+For generating a file with 1M values, node took ~100ms of CPU, single threaded.  
+For 100k files, that is ~2.8 hours.  
+More importantly, storage is 400 GB.
+
+DB work  
+About 100k item rows (1st layer). Over the life of the job, about 25k claims, commits, task rows.
+
+Should we split tasks along C?
+Memory is already constrained by number of files, and won't exceed 28MB for us.  
+If we split along C, we could reduce this max limit, but nothing is under pressure.
+
+When could splitting by C help?
+If F is small, and C is large, this split would by us more parallelism.  
+Parallelism today is controlled by W. For F=100k, we would have 20k tasks, which is orders of magnitude > W.  
+With something like F=6, C=1M, we will create only 2 tasks, and both will run one after the other. The other workers sit idle. If we cut C into let's say k sections, we now have k independent trees to merge (and concatenate at the end).  
+That means k times as many items, claims, and task rows. Final answer is assembled from all these k segments. 'Job done' means 'k ranges done'. Slightly more complex fan in and accounting.  
+The point is, only the tail is where this will matter. When the final round is ongoing, and the items have reduced to <= 4W+1. With fan in 5, we have log(5)(W) levels where tasks < workers (only 1 for W=4).
+
+Our bottleneck is still the generation. But, as we decided initially, this is not the focus of the assignment. We could also have the workers generate the files for leaves on the go. We would eliminate 400GB of writes and reads.
+
+Postgres load  
+25k claims per max job, each interleaved with seconds of work. At most W claims in parallel. Each claim costing O(W) rows. Trivial.  
+Progress query (count(\*) over 100k items in a job) is quick because of the items_job_idx. We could optimise this with a items_remaining count if needed too.
+
+Total reads across a job ~= 1.25 x total size, ~=500GB.
+
+Tasks - 25k per max job. Index on job id for quick job stats. Could add an index on worker id for quick worker stats.
