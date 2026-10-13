@@ -242,3 +242,7 @@ Now, for a materialized view, there are 3 ways to execute this.
 - Merge join: When both sides are sorted on the join key.
 
 ### Task Claiming Query Correctness
+
+The issue for item claiming for a given job came because the engine went with a subquery plan instead of a materialised plan. For every outer item row, it ran the innter query to see if this was a valid item. Since it was, it updated it, and moved on. For the second outer item, it ran the same query. This time the subquery skips item 1 since it has been updated.  
+The same keeps happening for every outer item, and it is effectively a sliding window of 5 in the subquery, and every item gets picked.  
+A materialized CTE upfront fixes this.
