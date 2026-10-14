@@ -1,5 +1,7 @@
 # Distributed Mean — Design
 
+Code: [github.com/sahil27301/distributed-mean](https://github.com/sahil27301/distributed-mean)
+
 ## 1. Overview
 
 A user submits a job with a number of files and a number of values per file. The system computes the mean of every index across all files and returns a single file of means, one per index.
@@ -35,17 +37,15 @@ The problem is modelled on the server-side aggregation step of federated learnin
 
 ```mermaid
 flowchart LR
-  U[User] -->|POST /jobs| API[API<br/>Node + Express + TS]
+  U[User] -->|POST /jobs<br/>GET /jobs/:id| API[API<br/>Node + Express + TS]
+  API -->|insert job + F items<br/>status, result| PG[(Postgres<br/>jobs, items, tasks)]
   API -->|write raw files| BS[(Blob storage<br/>shared volume / S3)]
-  API -->|insert job + F items| PG[(Postgres<br/>jobs, items)]
   W1[Worker 1..W<br/>Python] -->|claim / commit / heartbeat| PG
   W1 -->|read inputs, write partials| BS
-  U -->|GET /jobs/:id| API
-  API -->|status, result| PG
 ```
 
 - **API**: validates input, generates raw files, creates the job and its F items, exposes job status and results.
-- **Postgres**: `jobs` and `items` tables. Items are the queue (ITD 2).
+- **Postgres**: `jobs`, `items`, and `tasks` tables. Items are the queue (ITD 2). Tasks record every finished attempt, for stats (§10).
 - **Blob storage**: `BlobStore` interface; shared Docker volume now, S3 later (ITD 7).
 - **Workers**: stateless loop of claim → merge → commit. No coordinator.
 
