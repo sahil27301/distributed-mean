@@ -11,6 +11,7 @@ export interface JobRecord {
   resultPath: string | null;
   error: string | null;
   createdAt: Date;
+  runningAt: Date | null;
   completedAt: Date | null;
   itemsRemaining: number;
 }
@@ -21,7 +22,7 @@ export interface JobSpec {
   valuesPerFile: number;
 }
 
-interface JobRow {
+export interface JobRow {
   id: string;
   file_count: number;
   values_per_file: number;
@@ -29,13 +30,14 @@ interface JobRow {
   result_path: string | null;
   error: string | null;
   created_at: Date;
+  running_at: Date | null;
   completed_at: Date | null;
   items_remaining: number;
 }
 
-const JOB_COLUMNS = `id, file_count, values_per_file, status, result_path, error, created_at, completed_at`;
+export const JOB_COLUMNS = `id, file_count, values_per_file, status, result_path, error, created_at, running_at, completed_at`;
 
-function toRecord(row: JobRow): JobRecord {
+export function toRecord(row: JobRow): JobRecord {
   return {
     id: row.id,
     fileCount: row.file_count,
@@ -44,6 +46,7 @@ function toRecord(row: JobRow): JobRecord {
     resultPath: row.result_path,
     error: row.error,
     createdAt: row.created_at,
+    runningAt: row.running_at,
     completedAt: row.completed_at,
     itemsRemaining: row.items_remaining,
   };

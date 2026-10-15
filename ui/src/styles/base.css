@@ -1,0 +1,274 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  font-family: var(--font);
+  font-size: 100%;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  background: var(--panel);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  margin: 0;
+  font-size: var(--t-body);
+  line-height: 1.5;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-cond);
+  font-weight: 600;
+  line-height: 1.15;
+  margin: 0;
+}
+
+h1 {
+  font-size: var(--t-h1);
+}
+
+h2 {
+  font-size: var(--t-h2);
+}
+
+a {
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--size-hi);
+  outline-offset: 2px;
+}
+
+.muted {
+  color: var(--ink-soft);
+}
+
+/* ---------- shell ---------- */
+
+.shell {
+  min-height: 100vh;
+}
+
+.topbar {
+  display: flex;
+  align-items: baseline;
+  gap: 2rem;
+  padding: 0.9rem clamp(1rem, 4vw, 2.5rem);
+  border-bottom: 1.5px solid var(--ink);
+}
+
+.wordmark {
+  font-family: var(--font-cond);
+  font-weight: 600;
+  font-size: var(--t-lead);
+  text-decoration: none;
+  letter-spacing: 0.01em;
+}
+
+.topnav {
+  display: flex;
+  gap: 1.25rem;
+}
+
+.topnav__link {
+  text-decoration: none;
+  color: var(--ink-soft);
+  padding-bottom: 2px;
+  border-bottom: 2px solid transparent;
+}
+
+.topnav__link:hover {
+  color: var(--ink);
+}
+
+.topnav__link.active {
+  color: var(--ink);
+  border-bottom-color: var(--ink);
+}
+
+.page {
+  max-width: 72rem;
+  padding: 2rem clamp(1rem, 4vw, 2.5rem) 4rem;
+}
+
+.page-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.page-head p {
+  margin: 0.25rem 0 0;
+  max-width: 60ch;
+}
+
+/* ---------- buttons ---------- */
+
+.button {
+  font: inherit;
+  font-weight: 500;
+  border-radius: 6px;
+  padding: 0.5rem 1rem;
+  border: 1.5px solid var(--ink);
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.button:hover {
+  background: var(--panel-raised);
+}
+
+.button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.button--primary {
+  background: var(--ink);
+  color: var(--panel-raised);
+}
+
+.button--primary:hover {
+  background: #33434e;
+}
+
+.button--plain {
+  border-color: transparent;
+  color: var(--ink-soft);
+  padding-inline: 0.5rem;
+}
+
+.button--plain:hover {
+  color: var(--ink);
+  background: transparent;
+}
+
+/* ---------- lamps and progress ---------- */
+
+.lamp {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  white-space: nowrap;
+}
+
+.lamp::before {
+  content: "";
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  border: 1.5px solid var(--ink);
+  background: var(--panel-raised);
+}
+
+.lamp--running::before {
+  background: var(--amber);
+}
+
+.lamp--done::before {
+  background: var(--green);
+}
+
+.lamp--failed::before {
+  background: var(--red);
+}
+
+.progress {
+  height: 4px;
+  background: var(--line-faint);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progress__fill {
+  height: 100%;
+  background: var(--ink);
+  transition: width 400ms ease-out;
+}
+
+.progress--done .progress__fill {
+  background: var(--green);
+}
+
+.progress--failed .progress__fill {
+  background: var(--red);
+}
+
+/* ---------- segmented control ---------- */
+
+.segmented {
+  display: inline-flex;
+  border: 1.5px solid var(--ink);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.segmented__option {
+  font: inherit;
+  padding: 0.3rem 0.9rem;
+  border: 0;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.segmented__option + .segmented__option {
+  border-left: 1.5px solid var(--ink);
+}
+
+.segmented__option[aria-pressed="true"] {
+  background: var(--ink);
+  color: var(--panel-raised);
+}
+
+/* ---------- label/value groups ---------- */
+
+.facts {
+  margin: 0;
+  border-top: 1px solid var(--line-faint);
+}
+
+.facts__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid var(--line-faint);
+}
+
+.facts dt {
+  color: var(--ink-soft);
+}
+
+.facts dd {
+  margin: 0;
+  text-align: right;
+}
+
+.alert {
+  background: var(--red-tint);
+  border-left: 3px solid var(--red);
+  padding: 0.6rem 0.9rem;
+  margin: 0 0 1.5rem;
+  max-width: 70ch;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress__fill {
+    transition: none;
+  }
+}

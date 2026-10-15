@@ -11,9 +11,11 @@ The full design is in [`docs/design.md`](docs/design.md); the key decisions are 
 Requires Docker.
 
 ```bash
-docker compose up -d --build          # postgres, api, 4 workers
+docker compose up -d --build          # postgres, api, 4 workers, ui
 WORKERS=8 docker compose up -d        # or any number of workers
 ```
+
+Open [localhost:8080](http://localhost:8080) for the UI: create jobs (with presets, several at once), follow their progress, and watch jobs of up to 100 files merge live. The job page draws the queue, in claim order, above one station per worker. Files move into the worker that claimed them, and the partial it produces moves back, coloured by how many files it covers. The Workers page shows what each worker is doing now, plus its stats from `tasks`. Try `docker kill <worker name>` during a job: the station turns red until its lease expires and another worker picks the files up.
 
 ```bash
 # create a job: 202 + Location header
@@ -27,6 +29,8 @@ curl localhost:3000/jobs/<id>
 curl -L localhost:3000/jobs/<id>/result -o means.csv
 ```
 
+For UI development, `cd ui && npm run dev` serves on port 5173 and proxies `/api` to the API on port 3000 (override with `API_URL`).
+
 Logs: `docker compose logs -f api` and `docker compose logs -f worker`. API logs are JSON (pipe through `npx pino-pretty` to read them).
 
 ## API
@@ -36,6 +40,11 @@ Logs: `docker compose logs -f api` and `docker compose logs -f worker`. API logs
 | POST   | `/jobs`            | `202` with the job and `Location: /jobs/{id}`; `400` if invalid                              |
 | GET    | `/jobs/:id`        | `200` with `status` (`generating` → `running` → `done`/`failed`), `progress` (0–1), `resultUrl` when done, `error` when failed; `404`/`400` |
 | GET    | `/jobs/:id/result` | `200` CSV stream (local storage) or `302` to a direct URL (S3); `409` until done; `404`      |
+| GET    | `/jobs?limit&cursor&status` | Newest first, keyset-paginated: `{ jobs, nextCursor }`; `status` is `active`, `done` or `failed` |
+| GET    | `/jobs/:id/snapshot` | Job, its items (id, size, holder, producer) when F ≤ 100, and live workers; what the UI board polls |
+| GET    | `/jobs/:id/result/preview?limit` | First 1–100 means (default 20) and the total count; reads only the start of the file; `409` until done |
+| GET    | `/jobs/:id/tasks`  | Per-worker merges, lost leases, failed attempts, values read and busy time for this job |
+| GET    | `/workers`         | Workers seen in the last 15 s, each with its current task and lifetime stats                 |
 
 Limits: `fileCount` 2–99,999 and `valuesPerFile` 2–999,999 (the problem's 1 < F < 100k, 1 < C < 1M). Values are integers 0–999.
 
@@ -58,6 +67,18 @@ Worker speed is simulated so heterogeneity is visible: `delay = speed_factor × 
 | `TASK_OVERHEAD_SECONDS`      | 0                 | Fixed cost per task; makes speed differences visible on small jobs       |
 
 Set them in the shell, e.g. `WORKER_SPEED_FACTOR=1 SECONDS_PER_MILLION_VALUES=5 docker compose up -d`. Lease, heartbeat and poll intervals are in [`worker/worker/config.py`](worker/worker/config.py); generation concurrency is `GENERATION_CONCURRENCY` on the API (default 2).
+
+### Operating workers while jobs run
+
+```bash
+docker compose up -d --scale worker=6                  # add workers; running ones are untouched
+docker compose up -d --scale worker=2                  # remove workers: SIGTERM, each finishes its current task first
+docker kill <worker name>                              # crash one (name = container id, shown in the UI)
+docker start <worker name>                             # bring it back as a new worker (new id, fresh stats)
+WORKER_SPEED_FACTOR=4 docker compose up -d worker      # change speed: recreates all workers, gracefully
+```
+
+Speed settings are read at startup, so changing them recreates the workers. That's safe mid-job: on SIGTERM a worker finishes its current task, with up to 60 s (`stop_grace_period`) before compose kills it. If it is killed, its files return to the queue when the lease expires, so no work is lost either way. There's no restart policy, so a killed worker stays down until you start it again; that's deliberate, so a crash is visible on the board.
 
 ## Stats
 
@@ -92,6 +113,7 @@ Database-backed tests need Postgres from compose running (`docker compose up -d 
 ```bash
 cd api && npm install && npm test            # unit + integration (vitest)
 cd worker && uv sync && uv run pytest        # unit + in-process multi-worker runs (pytest)
+cd ui && npm install && npm test             # board placement and colour scale (vitest)
 python3 scripts/e2e.py                       # against the running stack, ~2–3 min (--quick skips crash scenarios)
 ```
 
@@ -101,7 +123,8 @@ The end-to-end script checks validation and status codes, edge sizes (F = 2, 5, 
 
 ```
 api/            Node + Express + TypeScript: endpoints, generation, resume
-worker/         Python: claim / merge / heartbeat / commit loop
+worker/         Python: claim / merge / heartbeat / commit loop, presence
+ui/             React + Vite: jobs, live job board, workers (nginx in compose, proxies /api)
 db/             schema (applied by postgres on first start)
 scripts/e2e.py  end-to-end checks against the running stack
 docs/           design doc, decisions (ITDs), notes

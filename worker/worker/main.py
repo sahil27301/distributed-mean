@@ -8,7 +8,10 @@ from worker.blob_store import LocalBlobStore
 from worker.config import Config, load_config
 from worker.log import setup_logging
 from worker.loop import WorkerContext, step
+from worker.presence import Presence
 from worker.speed import SpeedSimulator
+
+PRESENCE_INTERVAL_SECONDS = 5
 
 
 def connect_with_retry(database_url: str, log: logging.Logger, attempts: int = 30) -> psycopg.Connection:
@@ -55,6 +58,8 @@ def main() -> None:
     signal.signal(signal.SIGINT, request_stop)
 
     ctx = build_context(config, log)
+    presence = Presence(config.database_url, config.worker_id, config.speed_factor, PRESENCE_INTERVAL_SECONDS, log)
+    presence.start()
     log.info(
         "started blob_root=%s speed_factor=%.2f seconds_per_million_values=%.2f task_overhead=%.2fs "
         "lease=%ss heartbeat=%ss",
@@ -75,6 +80,7 @@ def main() -> None:
             log.exception("unexpected error; continuing")
             time.sleep(config.idle_poll_seconds)
 
+    presence.stop()
     close_context(ctx)
     log.info("stopped")
 

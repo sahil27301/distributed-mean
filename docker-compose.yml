@@ -47,8 +47,17 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    # Workers finish their current task on SIGTERM; give slow ones time before compose escalates to SIGKILL.
+    stop_grace_period: 60s
     deploy:
       replicas: ${WORKERS:-4}
+
+  ui:
+    build: ./ui
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
 
 volumes:
   pgdata:
